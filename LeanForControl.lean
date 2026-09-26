@@ -35,6 +35,8 @@ import LeanForControl.LinearSystems.Realization.MarkovParameters
 import LeanForControl.LinearSystems.Realization.Minimal
 import LeanForControl.LinearSystems.Realization.Minimality
 import LeanForControl.LinearSystems.Realization.Reduction
+import LeanForControl.LinearSystems.Realization.Similarity
+import LeanForControl.LinearSystems.Realization.FiniteDetermination
 import LeanForControl.LinearSystems.Solutions.CtsLTI
 import LeanForControl.LinearSystems.Solutions.CtsLTV
 import LeanForControl.LinearSystems.Solutions.DefsCtsLTV

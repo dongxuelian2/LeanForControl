@@ -36,6 +36,18 @@ def IsMinimal (R : Realization 𝕜 n m p) : Prop :=
   ∀ (n' : ℕ) (S : Realization 𝕜 n' m p),
     R.BehaviorallyEquivalent S → n ≤ n'
 
+/-- Minimality is invariant under a change of state coordinates.
+
+Reference: Hespanha, *Linear Systems Theory*, §17.1. -/
+theorem Similar.isMinimal_iff {R₁ R₂ : Realization 𝕜 n m p}
+    (h : Similar R₁ R₂) : R₁.IsMinimal ↔ R₂.IsMinimal := by
+  constructor
+  · intro hmin n' S h₂S
+    exact hmin n' S ((h.behaviorallyEquivalent R₁ R₂).trans h₂S)
+  · intro hmin n' S h₁S
+    exact hmin n' S
+      (((h.symm).behaviorallyEquivalent R₂ R₁).trans h₁S)
+
 /-- Every finite Hankel matrix has rank at most the state dimension of a
 realization through which it factors.
 
@@ -72,6 +84,41 @@ theorem hankelMatrix_rank_eq_stateDim_of_controllable_of_observable
     LinearMap.range_comp_of_range_eq_top _ hsurj, ← Matrix.rank]
   exact
     (isObservable_iff_observabilityMatrix_rank_eq R.A R.C).mp hobs
+
+/-- For horizons at least the state dimension, the finite Hankel rank of a
+controllable and observable realization stabilizes at the state dimension.
+
+The state-horizon Hankel matrix is a row-and-column submatrix of every larger
+horizon, while every Hankel matrix still factors through the state space.
+
+Reference: Hespanha, *Linear Systems Theory*, §17.1. -/
+@[blueprint "thm:hankel-rank-stabilization"
+  (statement := /-- If a realization of dimension $n$ is controllable and
+    observable, then every finite Hankel matrix with both horizons at least
+    $n$ has rank $n$. -/)]
+theorem hankelMatrix_rank_eq_stateDim_of_le_horizons
+    (R : Realization 𝕜 n m p) (hctrl : R.IsControllable)
+    (hobs : R.IsObservable) {r s : ℕ} (hr : n ≤ r) (hs : n ≤ s) :
+    Matrix.rank (R.hankelMatrix r s) = n := by
+  let rowEmbed : Fin n × Fin p → Fin r × Fin p :=
+    fun ki => (Fin.castLE hr ki.1, ki.2)
+  let colEmbed : Fin n × Fin m → Fin s × Fin m :=
+    fun kj => (Fin.castLE hs kj.1, kj.2)
+  have hsub :
+      (R.hankelMatrix r s).submatrix rowEmbed colEmbed =
+        R.hankelMatrix n n := by
+    ext ia jb
+    rfl
+  apply Nat.le_antisymm
+  · exact R.hankelMatrix_rank_le_stateDim r s
+  · calc
+      n = Matrix.rank (R.hankelMatrix n n) :=
+        (R.hankelMatrix_rank_eq_stateDim_of_controllable_of_observable
+          hctrl hobs).symm
+      _ = Matrix.rank ((R.hankelMatrix r s).submatrix rowEmbed colEmbed) :=
+        congrArg Matrix.rank hsub.symm
+      _ ≤ Matrix.rank (R.hankelMatrix r s) :=
+        Matrix.rank_submatrix_le _ _ _
 
 /-- A controllable and observable realization is minimal.
 
