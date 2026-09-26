@@ -3,15 +3,27 @@ import Mathlib.LinearAlgebra.Isomorphisms
 import Architect
 
 /-!
-# Finite Ho-Kalman realization from compatible Hankel data
+# Finite Ho–Kalman synthesis
 
-The state space is the range of a finite block Hankel map. Explicit kernel and
-range compatibility let the one-step shift descend to this range. The first
-column and row yield input and output maps; repeated shifts recover the
-specified finite Markov window. The state dimension equals Hankel rank.
+This file constructs a finite Ho–Kalman realization from compatible Markov
+blocks.  Its state space is the range of the unshifted finite Hankel map, and
+explicit kernel and range compatibility make the shifted Hankel map descend
+to the state endomorphism.  First-column and first-row maps supply the input
+and output operators, repeated shifts recover the finite Markov window, and
+finite determinacy upgrades a sufficiently long window to full behavioral
+equivalence.
 
-Reference: Ho and Kalman, "Effective construction of linear state-variable
-models from input/output functions" (1966).
+For a positive-dimensional minimal complex realization, controllability and
+observability supply compatibility automatically at horizons `(n, 2 * n)`.
+The resulting realization is behaviorally equivalent, controllable,
+observable, minimal, has state dimension equal to the Hankel rank, and is
+unique across sufficient compatible horizons up to transported similarity.
+The explicit `(n, 2 * n)` horizon and zero-dimension handling are Lean
+consequences of the finite-determinacy and rank lemmas, not verbatim
+claims attributed to the 1966 paper.
+
+Reference: Ho and Kalman, “Effective construction of linear state-variable
+models from input/output functions” (1966).
 -/
 
 namespace LinearSystems
@@ -488,6 +500,378 @@ theorem hoKalmanRealization_stateDim_eq_rank
       Matrix.rank (shiftedHankel M r s 0) :=
   hankelStateSpace_finrank_eq_rank M r s
 
+/-! ## Synthesis from the Markov data of an existing realization -/
+
+/-- The unshifted generic Hankel matrix specialized to a realization's
+Markov sequence is its finite Hankel matrix.
+
+Original: compatibility bridge for LeanForControl. -/
+theorem shiftedHankel_markovParameter_zero_eq_hankelMatrix
+    {n : ℕ} (R : Realization 𝕜 n m p) (r s : ℕ) :
+    shiftedHankel R.markovParameter r s 0 = R.hankelMatrix r s := by
+  ext ia jb
+  simp [shiftedHankel, hankelMatrix]
+
+/-- A finite controllability-horizon matrix acts by summing its block-column
+responses.
+
+Original: finite-horizon matrix plumbing for LeanForControl. -/
+theorem controllabilityHorizon_mulVec_eq_sum
+    {n : ℕ} (R : Realization 𝕜 n m p) (s : ℕ)
+    (u : Fin s × Fin m → 𝕜) :
+    R.controllabilityHorizon s *ᵥ u =
+      ∑ k : Fin s, (R.A ^ (k : ℕ) * R.B) *ᵥ fun j => u (k, j) := by
+  funext i
+  rw [Finset.sum_apply]
+  change
+    (∑ kj : Fin s × Fin m,
+      R.controllabilityHorizon s i kj * u kj) =
+      ∑ k : Fin s,
+        ((R.A ^ (k : ℕ) * R.B) *ᵥ fun j => u (k, j)) i
+  rw [Fintype.sum_prod_type]
+  refine Finset.sum_congr rfl fun k _ => ?_
+  simp only [controllabilityHorizon, Matrix.mulVec, dotProduct,
+    Matrix.of_apply]
+
+/-- Every controllability horizon at least as long as the state dimension is
+surjective for a controllable realization.
+
+Original: horizon-extension infrastructure for LeanForControl. -/
+theorem controllabilityHorizon_mulVec_surjective_of_isControllable
+    {n : ℕ} (R : Realization 𝕜 n m p) (hctrl : R.IsControllable)
+    {s : ℕ} (hns : n ≤ s) (x : Fin n → 𝕜) :
+    ∃ u : Fin s × Fin m → 𝕜, R.controllabilityHorizon s *ᵥ u = x := by
+  obtain ⟨t, rfl⟩ := Nat.exists_eq_add_of_le hns
+  obtain ⟨u, hu⟩ := hctrl x
+  refine
+    ⟨fun kj =>
+      Fin.addCases (fun k => u k kj.2) (fun _ => 0) kj.1, ?_⟩
+  rw [controllabilityHorizon_mulVec_eq_sum, Fin.sum_univ_add]
+  simp only [Fin.addCases_left, Fin.addCases_right, Fin.val_castAdd]
+  have hzero :
+      (∑ k : Fin t,
+        (R.A ^ (Fin.natAdd n k : ℕ) * R.B) *ᵥ fun _ => 0) = 0 := by
+    apply Finset.sum_eq_zero
+    intro k _
+    ext i
+    simp [Matrix.mulVec]
+  rw [hzero, add_zero]
+  exact hu.symm
+
+/-- The one-step shifted Hankel matrix of a realization factors as
+`O_r A C_s`.
+
+Reference: Ho and Kalman (1966). -/
+theorem shiftedHankel_markovParameter_one_eq_factorization
+    {n : ℕ} (R : Realization 𝕜 n m p) (r s : ℕ) :
+    shiftedHankel R.markovParameter r s 1 =
+      R.observabilityHorizon r * R.A * R.controllabilityHorizon s := by
+  ext ia jb
+  change
+    (R.C * R.A ^ (1 + (ia.1 : ℕ) + (jb.1 : ℕ)) * R.B) ia.2 jb.2 =
+      ((R.C * R.A ^ (ia.1 : ℕ)) * R.A *
+        (R.A ^ (jb.1 : ℕ) * R.B)) ia.2 jb.2
+  have hpow : 1 + (ia.1 : ℕ) + (jb.1 : ℕ) =
+      (ia.1 : ℕ) + 1 + (jb.1 : ℕ) := by omega
+  rw [hpow, pow_add, pow_add, pow_one]
+  simp only [Matrix.mul_assoc]
+
+/-- Controllability and observability make the consecutive finite Hankel
+pair shift-compatible once the column horizon reaches the state dimension.
+
+Reference: Ho and Kalman (1966). -/
+theorem hankelShiftCompatible_markovParameter_of_isControllable_of_isObservable
+    {n : ℕ} (R : Realization 𝕜 n m p)
+    (hctrl : R.IsControllable) (hobs : R.IsObservable)
+    (s : ℕ) (hns : n ≤ s) :
+    HankelShiftCompatible R.markovParameter n s where
+  ker_le := by
+    intro u hu
+    rw [LinearMap.mem_ker] at hu ⊢
+    change (shiftedHankel R.markovParameter n s 0).mulVec u = 0 at hu
+    change (shiftedHankel R.markovParameter n s 1).mulVec u = 0
+    rw [shiftedHankel_markovParameter_zero_eq_hankelMatrix,
+      R.hankelMatrix_eq_observability_mul_controllability] at hu
+    rw [shiftedHankel_markovParameter_one_eq_factorization]
+    rw [← Matrix.mulVec_mulVec] at hu
+    rw [← Matrix.mulVec_mulVec, ← Matrix.mulVec_mulVec]
+    have hx : R.controllabilityHorizon s *ᵥ u = 0 := by
+      apply
+        (isObservable_iff_observabilityMatrix_ker_trivial R.A R.C).mp hobs
+      rw [← R.observabilityHorizon_stateDim]
+      exact hu
+    rw [hx, Matrix.mulVec_zero, Matrix.mulVec_zero]
+  range_le := by
+    rintro y ⟨u, rfl⟩
+    let x := R.A *ᵥ (R.controllabilityHorizon s *ᵥ u)
+    obtain ⟨v, hv⟩ :=
+      controllabilityHorizon_mulVec_surjective_of_isControllable
+        R hctrl hns x
+    refine ⟨v, ?_⟩
+    change
+      (shiftedHankel R.markovParameter n s 0).mulVec v =
+        (shiftedHankel R.markovParameter n s 1).mulVec u
+    rw [shiftedHankel_markovParameter_zero_eq_hankelMatrix,
+      R.hankelMatrix_eq_observability_mul_controllability,
+      shiftedHankel_markovParameter_one_eq_factorization]
+    rw [← Matrix.mulVec_mulVec, ← Matrix.mulVec_mulVec,
+      ← Matrix.mulVec_mulVec]
+    exact congrArg (R.observabilityHorizon n).mulVec hv
+
+/-- An explicit finite-window criterion under which the Ho–Kalman
+realization built from an existing realization's Markov blocks has the same
+complete behavior.
+
+The synthesized state dimension is `rank H₀`; hence finite determination
+requires exactly `n + rank H₀` recovered blocks.  The hypothesis states that
+this entire window lies among the `s` available block columns.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+@[blueprint "thm:finite-ho-kalman-behavioral-equivalence"
+  (statement := /-- If $s\ge n+\operatorname{rank}H_0$, then the compatible
+    finite Ho--Kalman realization constructed from an $n$-state realization's
+    Markov data is behaviorally equivalent to the original realization. -/)]
+theorem behaviorallyEquivalent_hoKalmanRealization
+    {n : ℕ} (R : Realization 𝕜 n m p) (r s : ℕ)
+    (h : HankelShiftCompatible R.markovParameter r s)
+    (hr : 0 < r) (hs : 0 < s)
+    (hwindow : n + Matrix.rank (shiftedHankel R.markovParameter r s 0) ≤ s) :
+    R.BehaviorallyEquivalent
+      (hoKalmanRealization R.markovParameter R.D r s h hr hs) := by
+  apply behaviorallyEquivalent_of_markovParameter_eq_lt_add
+  · rfl
+  · intro k hk
+    have hks : k < s := by
+      rw [hankelStateSpace_finrank_eq_rank] at hk
+      exact hk.trans_le hwindow
+    exact
+      (hoKalmanRealization_markovParameter_eq
+        R.markovParameter R.D r s h hr hs k hks).symm
+
+/-- A convenient realization-dimension-only sufficient window: `2*n` block
+columns always contains the exact finite-determination window because every
+finite Hankel rank is at most `n`.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+theorem behaviorallyEquivalent_hoKalmanRealization_of_two_mul_le
+    {n : ℕ} (R : Realization 𝕜 n m p) (r s : ℕ)
+    (h : HankelShiftCompatible R.markovParameter r s)
+    (hr : 0 < r) (hs : 0 < s) (hwindow : n + n ≤ s) :
+    R.BehaviorallyEquivalent
+      (hoKalmanRealization R.markovParameter R.D r s h hr hs) := by
+  apply behaviorallyEquivalent_hoKalmanRealization R r s h hr hs
+  have hrank : Matrix.rank (shiftedHankel R.markovParameter r s 0) ≤ n := by
+    rw [shiftedHankel_markovParameter_zero_eq_hankelMatrix]
+    exact R.hankelMatrix_rank_le_stateDim r s
+  omega
+
+section Complex
+
+variable {n : ℕ}
+
+/-- The automatic consecutive-Hankel compatibility proof used by the
+canonical positive-dimensional synthesis of a minimal realization.
+
+Reference: Ho and Kalman (1966). -/
+theorem minimalHoKalmanShiftCompatible
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal) :
+    HankelShiftCompatible R.markovParameter n (n + n) :=
+  let hco := (isMinimal_iff_isControllable_and_isObservable R).mp hmin
+  hankelShiftCompatible_markovParameter_of_isControllable_of_isObservable
+    R hco.1 hco.2 (n + n) (Nat.le_add_right n n)
+
+/-- The canonical finite Ho–Kalman synthesis of a positive-dimensional
+minimal realization, using row horizon `n` and the explicit
+finite-determination column horizon `2*n`.
+
+Reference: Ho and Kalman (1966). -/
+noncomputable def minimalHoKalmanRealization
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal) (hn : 0 < n) :
+    Realization ℂ
+      (Module.finrank ℂ (hankelStateSpace R.markovParameter n (n + n))) m p :=
+  hoKalmanRealization R.markovParameter R.D n (n + n)
+    (minimalHoKalmanShiftCompatible R hmin) hn (by omega)
+
+/-- The exact `n + rank H₀` recovery window of the canonical minimal
+construction fits inside its `2*n` supplied block columns.
+
+Original: finite-window arithmetic for LeanForControl. -/
+theorem minimalHoKalman_window
+    (R : Realization ℂ n m p) :
+    n + Matrix.rank
+        (shiftedHankel R.markovParameter n (n + n) 0) ≤ n + n := by
+  have hrank :
+      Matrix.rank (shiftedHankel R.markovParameter n (n + n) 0) ≤ n := by
+    rw [shiftedHankel_markovParameter_zero_eq_hankelMatrix]
+    exact R.hankelMatrix_rank_le_stateDim n (n + n)
+  omega
+
+/-- The canonical `n`-by-`2*n` finite Ho–Kalman construction preserves the
+complete behavior of a positive-dimensional minimal realization.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+theorem behaviorallyEquivalent_minimalHoKalmanRealization
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal) (hn : 0 < n) :
+    R.BehaviorallyEquivalent (minimalHoKalmanRealization R hmin hn) := by
+  apply behaviorallyEquivalent_hoKalmanRealization
+  exact minimalHoKalman_window R
+
+/-- A compatible Ho–Kalman realization built from a minimal complex
+realization is minimal whenever its recovery window is long enough for finite
+determination.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+theorem hoKalmanRealization_isMinimal_of_isMinimal
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal) (r s : ℕ)
+    (h : HankelShiftCompatible R.markovParameter r s)
+    (hr : 0 < r) (hs : 0 < s)
+    (hwindow : n + Matrix.rank (shiftedHankel R.markovParameter r s 0) ≤ s) :
+    (hoKalmanRealization R.markovParameter R.D r s h hr hs).IsMinimal := by
+  let S := hoKalmanRealization R.markovParameter R.D r s h hr hs
+  have hbehavior : R.BehaviorallyEquivalent S :=
+    behaviorallyEquivalent_hoKalmanRealization R r s h hr hs hwindow
+  have hdim_le : Module.finrank ℂ (hankelStateSpace R.markovParameter r s) ≤ n := by
+    rw [hankelStateSpace_finrank_eq_rank,
+      shiftedHankel_markovParameter_zero_eq_hankelMatrix]
+    exact R.hankelMatrix_rank_le_stateDim r s
+  intro n' T hST
+  exact hdim_le.trans (hmin n' T (hbehavior.trans hST))
+
+/-- The canonical `n`-by-`2*n` synthesis of a positive-dimensional minimal
+realization is minimal.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+theorem minimalHoKalmanRealization_isMinimal
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal) (hn : 0 < n) :
+    (minimalHoKalmanRealization R hmin hn).IsMinimal := by
+  apply hoKalmanRealization_isMinimal_of_isMinimal R hmin
+  exact minimalHoKalman_window R
+
+/-- Under the same explicit finite window, the synthesized Ho–Kalman
+realization is controllable and observable.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+theorem hoKalmanRealization_isControllable_and_isObservable_of_isMinimal
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal) (r s : ℕ)
+    (h : HankelShiftCompatible R.markovParameter r s)
+    (hr : 0 < r) (hs : 0 < s)
+    (hwindow : n + Matrix.rank (shiftedHankel R.markovParameter r s 0) ≤ s) :
+    (hoKalmanRealization R.markovParameter R.D r s h hr hs).IsControllable ∧
+      (hoKalmanRealization R.markovParameter R.D r s h hr hs).IsObservable :=
+  (isMinimal_iff_isControllable_and_isObservable _).mp
+    (hoKalmanRealization_isMinimal_of_isMinimal
+      R hmin r s h hr hs hwindow)
+
+/-- The canonical `n`-by-`2*n` synthesis is controllable and observable.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+theorem minimalHoKalmanRealization_isControllable_and_isObservable
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal) (hn : 0 < n) :
+    (minimalHoKalmanRealization R hmin hn).IsControllable ∧
+      (minimalHoKalmanRealization R hmin hn).IsObservable :=
+  (isMinimal_iff_isControllable_and_isObservable _).mp
+    (minimalHoKalmanRealization_isMinimal R hmin hn)
+
+/-- For data generated by a minimal realization, the synthesized state
+dimension equals the original minimal dimension and the finite Hankel rank.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+theorem hoKalmanRealization_stateDim_eq_of_isMinimal
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal) (r s : ℕ)
+    (h : HankelShiftCompatible R.markovParameter r s)
+    (hr : 0 < r) (hs : 0 < s)
+    (hwindow : n + Matrix.rank (shiftedHankel R.markovParameter r s 0) ≤ s) :
+    Module.finrank ℂ (hankelStateSpace R.markovParameter r s) = n := by
+  let S := hoKalmanRealization R.markovParameter R.D r s h hr hs
+  have hbehavior : R.BehaviorallyEquivalent S :=
+    behaviorallyEquivalent_hoKalmanRealization R r s h hr hs hwindow
+  apply Nat.le_antisymm
+  · rw [hankelStateSpace_finrank_eq_rank,
+      shiftedHankel_markovParameter_zero_eq_hankelMatrix]
+    exact R.hankelMatrix_rank_le_stateDim r s
+  · exact hmin _ S hbehavior
+
+/-- The canonical positive-dimensional synthesis has exactly the original
+minimal state dimension.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+theorem minimalHoKalmanRealization_stateDim_eq
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal) (hn : 0 < n) :
+    Module.finrank ℂ
+        (hankelStateSpace R.markovParameter n (n + n)) = n := by
+  exact
+    hoKalmanRealization_stateDim_eq_of_isMinimal R hmin n (n + n)
+      (minimalHoKalmanShiftCompatible R hmin) hn (by omega)
+      (minimalHoKalman_window R)
+
+/-- **Main finite Ho–Kalman synthesis theorem.**  The canonical finite
+construction from a positive-dimensional minimal realization uses only the
+blocks occurring in `H₀` and `H₁` at horizons `n` and `2*n`; it preserves the
+complete behavior, is controllable and observable, is minimal, and has state
+dimension equal both to `n` and to the finite Hankel rank.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+@[blueprint "thm:finite-ho-kalman-synthesis"
+  (statement := /-- For a positive-dimensional minimal $n$-state
+    realization, the finite Ho--Kalman construction at horizons
+    $(r,s)=(n,2n)$ is behaviorally equivalent, controllable, observable, and
+    minimal, with state dimension $n=\operatorname{rank}H_0$. -/)]
+theorem minimalHoKalmanRealization_spec
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal) (hn : 0 < n) :
+    R.BehaviorallyEquivalent (minimalHoKalmanRealization R hmin hn) ∧
+      (minimalHoKalmanRealization R hmin hn).IsControllable ∧
+      (minimalHoKalmanRealization R hmin hn).IsObservable ∧
+      (minimalHoKalmanRealization R hmin hn).IsMinimal ∧
+      Module.finrank ℂ
+          (hankelStateSpace R.markovParameter n (n + n)) = n ∧
+      Module.finrank ℂ
+          (hankelStateSpace R.markovParameter n (n + n)) =
+        Matrix.rank
+          (shiftedHankel R.markovParameter n (n + n) 0) := by
+  refine
+    ⟨behaviorallyEquivalent_minimalHoKalmanRealization R hmin hn,
+      (minimalHoKalmanRealization_isControllable_and_isObservable
+        R hmin hn).1,
+      (minimalHoKalmanRealization_isControllable_and_isObservable
+        R hmin hn).2,
+      minimalHoKalmanRealization_isMinimal R hmin hn,
+      minimalHoKalmanRealization_stateDim_eq R hmin hn,
+      hankelStateSpace_finrank_eq_rank R.markovParameter n (n + n)⟩
+
+/-- Two compatible finite Ho–Kalman constructions from the same minimal
+behavior, possibly using different horizons and hence different coordinate
+types, are similar after transport along their canonical dimension equality.
+
+Reference: Ho and Kalman (1966); Hespanha, *Linear Systems Theory*, §§17.1-17.3. -/
+theorem exists_stateDim_eq_and_similar_hoKalmanRealizations
+    (R : Realization ℂ n m p) (hmin : R.IsMinimal)
+    (r₁ s₁ r₂ s₂ : ℕ)
+    (h₁ : HankelShiftCompatible R.markovParameter r₁ s₁)
+    (h₂ : HankelShiftCompatible R.markovParameter r₂ s₂)
+    (hr₁ : 0 < r₁) (hs₁ : 0 < s₁) (hr₂ : 0 < r₂) (hs₂ : 0 < s₂)
+    (hw₁ : n + Matrix.rank (shiftedHankel R.markovParameter r₁ s₁ 0) ≤ s₁)
+    (hw₂ : n + Matrix.rank (shiftedHankel R.markovParameter r₂ s₂ 0) ≤ s₂) :
+    ∃ e : Module.finrank ℂ (hankelStateSpace R.markovParameter r₁ s₁) =
+        Module.finrank ℂ (hankelStateSpace R.markovParameter r₂ s₂),
+      Nonempty
+        (Similar
+          (e ▸ hoKalmanRealization R.markovParameter R.D r₁ s₁ h₁ hr₁ hs₁)
+          (hoKalmanRealization R.markovParameter R.D r₂ s₂ h₂ hr₂ hs₂)) := by
+  let S₁ := hoKalmanRealization R.markovParameter R.D r₁ s₁ h₁ hr₁ hs₁
+  let S₂ := hoKalmanRealization R.markovParameter R.D r₂ s₂ h₂ hr₂ hs₂
+  have hb₁ : R.BehaviorallyEquivalent S₁ :=
+    behaviorallyEquivalent_hoKalmanRealization R r₁ s₁ h₁ hr₁ hs₁ hw₁
+  have hb₂ : R.BehaviorallyEquivalent S₂ :=
+    behaviorallyEquivalent_hoKalmanRealization R r₂ s₂ h₂ hr₂ hs₂ hw₂
+  have hm₁ : S₁.IsMinimal :=
+    hoKalmanRealization_isMinimal_of_isMinimal R hmin r₁ s₁ h₁ hr₁ hs₁ hw₁
+  have hm₂ : S₂.IsMinimal :=
+    hoKalmanRealization_isMinimal_of_isMinimal R hmin r₂ s₂ h₂ hr₂ hs₂ hw₂
+  exact
+    exists_stateDim_eq_and_similar_of_isMinimal_of_behaviorallyEquivalent
+      S₁ S₂ hm₁ hm₂ (hb₁.symm.trans hb₂)
+
+end Complex
 
 end Realization
 

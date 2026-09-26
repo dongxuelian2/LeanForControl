@@ -24,20 +24,37 @@ LeanForControl/
 
     Controllability/             identical in discrete and continuous time — no split
       Controllability.lean      controllability matrix and rank test
-      DefsReachability.lean     reachable subspace
+      Defs.lean                 controllability, reachable-subspace definitions
       Reachability.lean         reachable-subspace characterizations, A-invariance
       Hautus.lean               controllability PBH test, via duality with Observability
-      Decomposition.lean        standalone controllable decomposition (planned)
+      DefsDecomposition.lean    canonical reachable restriction and matrices
+      Decomposition.lean        standalone controllable decomposition
 
     Observability/
       Observability.lean        observability matrix, rank/kernel forms
       Hautus.lean               unobservable subspace, observability PBH test
-      Decomposition.lean        standalone observable decomposition (planned)
+      DefsDecomposition.lean    canonical observable quotient and matrices
+      Decomposition.lean        standalone observable decomposition
 
     KalmanDecomposition/         needs both Controllability/ and Observability/
-      DefsDecomposition.lean    the four coordinate sectors and their lattice relations
+      Defs.lean                 the four coordinate sectors and their lattice relations
+      Dimensions.lean           sector dimensions and canonicality
+      DefsSemantic.lean         canonical controllable-observable quotient
+      Semantic.lean             semantic block properties and structural summary
       Decomposition.lean        existence, adapted coordinates, forced block-zero pattern
       DecompositionExamples.lean
+
+    Realization/                 algebraic external behavior and minimality
+      Defs.lean                 bundled (A,B,C,D) realization
+      MarkovParameters.lean     Markov parameters, behavior, similarity
+      Hankel.lean               arbitrary finite Hankel matrices
+      Minimal.lean              quantified minimality and rank lower bound
+      Reduction.lean            canonical core realization
+      Minimality.lean           minimality characterization and existence
+      Similarity.lean           uniqueness of minimal realizations up to similarity
+      FiniteDetermination.lean  finite Markov-data criterion via Cayley–Hamilton
+      HoKalman.lean             finite Hankel range/shift construction
+      Examples.lean             public-API regression examples
 
     Solutions/
       Continuous.lean           e^{At}, variation of constants
@@ -109,9 +126,10 @@ directory: the observability-side file builds the PBH test from an eigenvector a
 on the unobservable subspace, and the controllability-side file is a short duality
 corollary that imports it (`IsControllable A B ↔ IsObservable Aᵀ Bᵀ`) rather than
 repeating the argument. A result needing both subspaces at once — the Kalman decomposition
-today, minimal realizations eventually — gets its own directory instead of being folded
-into either side, so that "controllable decomposition" (in `Controllability/`) and "the
-Kalman decomposition" (in `KalmanDecomposition/`) stay visibly different results.
+and realization theory — get their own directories instead of being folded
+into either side, so that "controllable decomposition" (in `Controllability/`), "the
+Kalman decomposition" (in `KalmanDecomposition/`), and "realization theory" (in
+`Realization/`) stay visibly different results.
 
 What actually differs is a short list: the solution formula (`e^{At}` vs `Aᵏ`), the
 stability region (`Re λ < 0` vs `|λ| < 1`), the Gramians (integral vs sum), and the
@@ -151,18 +169,32 @@ gap rather than an unstated assumption that this library is continuous-time only
 | Reachable subspace ⟺ controllability | `reachableSubspace_eq_top_iff_isControllable` | `Controllability/Reachability.lean` | ✅ done |
 | PBH test for controllability | `isControllable_iff_hautus` | `Controllability/Hautus.lean` | ✅ done |
 | Controllability/observability duality | `isControllable_iff_isObservable_transpose` | `Controllability/Hautus.lean` | ✅ done |
-| Controllable decomposition (standalone) | — | `Controllability/Decomposition.lean` | planned |
+| Controllable decomposition (standalone) | `reachableMatrices_isControllable` | `Controllability/Decomposition.lean` | ✅ done |
 | Stabilizability | — | `Controllability/Hautus.lean` | planned |
 | Observability matrix | `observabilityMatrix` | `Observability/Observability.lean` | ✅ done |
 | Observability ⟺ trivial kernel | `isObservable_iff_observabilityMatrix_ker_trivial` | `Observability/Observability.lean` | ✅ done |
 | Observability ⟺ full column rank | `isObservable_iff_observabilityMatrix_rank_eq` | `Observability/Observability.lean` | ✅ done |
 | Unobservable subspace, `A`-invariance | `unobservableSubspace` | `Observability/Hautus.lean` | ✅ done |
 | PBH test for observability | `isObservable_iff_hautus` | `Observability/Hautus.lean` | ✅ done |
-| Observable decomposition (standalone) | — | `Observability/Decomposition.lean` | planned |
+| Observable decomposition (standalone) | `observableMatrices_isObservable` | `Observability/Decomposition.lean` | ✅ done |
 | Detectability | — | `Observability/Hautus.lean` | planned |
 | Kalman decomposition | `exists_kalmanDecomposition` | `KalmanDecomposition/Decomposition.lean` | ✅ done |
 | Block zero pattern of the decomposition | `kalman_block_matrix_zero_pattern` | `KalmanDecomposition/Decomposition.lean` | ✅ done |
-| Minimal realizations | — | — | planned, no directory settled (needs both — see open questions) |
+| Kalman sector dimension identities | `finrank_cuo_add_co_add_uuo_add_uo` | `KalmanDecomposition/Dimensions.lean` | ✅ done |
+| Controllable-observable core | `controllableObservableMatrices_isControllable_and_isObservable` | `KalmanDecomposition/Semantic.lean` | ✅ done |
+| Structural Kalman theorem | `exists_kalmanDecomposition_with_semantics` | `KalmanDecomposition/Semantic.lean` | ✅ done |
+| Realization object and behavioral equivalence | Realization, BehaviorallyEquivalent | Realization/Defs.lean, Realization/MarkovParameters.lean | ✅ done |
+| Finite Hankel factorization and rank bound | hankelMatrix_eq_observability_mul_controllability, hankelMatrix_rank_le_stateDim | Realization/Hankel.lean, Realization/Minimal.lean | ✅ done |
+| Canonical behavior-preserving core | behaviorallyEquivalent_core | Realization/Reduction.lean | ✅ done |
+| Minimal iff controllable and observable | isMinimal_iff_isControllable_and_isObservable | Realization/Minimality.lean | ✅ done over ℂ |
+| Existence of minimal realizations | exists_behaviorallyEquivalent_isMinimal | Realization/Minimality.lean | ✅ done over ℂ |
+| Uniqueness of minimal realizations up to similarity | similar_of_isMinimal_of_behaviorallyEquivalent | Realization/Similarity.lean | ✅ done over ℂ |
+| Minimal behavioral equivalence iff similarity | behaviorallyEquivalent_iff_similar_of_isMinimal | Realization/Similarity.lean | ✅ done over ℂ |
+| Finite Markov determinacy | behaviorallyEquivalent_of_markovParameter_eq_lt_add | Realization/FiniteDetermination.lean | ✅ done for k < n₁+n₂ |
+| Hankel rank stabilization | hankelMatrix_rank_eq_stateDim_of_le_horizons | Realization/Minimal.lean | ✅ done |
+| Finite Ho–Kalman synthesis and recovery | hoKalmanRealization_markovParameter_eq | Realization/HoKalman.lean | ✅ done under explicit shift compatibility |
+| Canonical minimal Ho–Kalman realization | minimalHoKalmanRealization_spec | Realization/HoKalman.lean | ✅ done over ℂ for positive state dimension; rank-zero behavior covered separately |
+| Ho–Kalman uniqueness across horizons | exists_stateDim_eq_and_similar_hoKalmanRealizations | Realization/HoKalman.lean | ✅ done under sufficient-horizon hypotheses |
 
 ## Status: solutions
 
@@ -293,11 +325,10 @@ reconciling two versions in review.
 - **Index types.** `Basic.lean` fixes the `Fin n × Fin m` convention for block matrices.
   Confirm this survives contact with the Gramians and the decomposition work before
   treating it as settled.
-- **Where do minimal realizations live?** Minimality means controllable *and* observable,
-  so — like the Kalman decomposition — it needs both `Controllability/` and
-  `Observability/`. Decide when the first file is written whether it joins
-  `KalmanDecomposition/`, gets its own directory, or is named accordingly (`Realization/`,
-  say) rather than defaulting silently into whichever directory is convenient at the time.
+- **Minimal realizations now live in `Realization/`.** The directory owns the bundled
+  `(A,B,C,D)` object, Markov behavior, Hankel matrices, reductions, and semantic
+  minimality. `KalmanDecomposition/` remains structural and supplies its canonical core
+  to the realization reduction layer.
 
 ## Lessons learned
 
