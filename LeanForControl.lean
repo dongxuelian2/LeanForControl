@@ -20,6 +20,9 @@ import LeanForControl.LinearSystems.Controllability.Reachability
 import LeanForControl.LinearSystems.KalmanDecomposition.Decomposition
 import LeanForControl.LinearSystems.KalmanDecomposition.DecompositionExamples
 import LeanForControl.LinearSystems.KalmanDecomposition.Defs
+import LeanForControl.LinearSystems.KalmanDecomposition.DefsSemantic
+import LeanForControl.LinearSystems.KalmanDecomposition.Dimensions
+import LeanForControl.LinearSystems.KalmanDecomposition.Semantic
 import LeanForControl.LinearSystems.Observability.Defs
 import LeanForControl.LinearSystems.Observability.DefsDecomposition
 import LeanForControl.LinearSystems.Observability.Decomposition
